@@ -1,0 +1,55 @@
+# 使用前首先修改ip地址!
+# podman build -t ssh_image -f ./dockerfile
+# podman run -it -v /c/data:/root/data --restart=always --privileged=true --name ssh ssh_image
+
+FROM ubuntu:22.04
+
+# 修改密码
+RUN echo 'root:root' | chpasswd
+
+RUN sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list &&\
+    sed -i 's/security.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list &&\
+    apt update && apt install -y openssh-server vim && apt clean
+
+RUN rm -rf /var/lib/apt/lists/* /tmp/* var/tmp/* &&\
+    mkdir /var/run/sshd && mkdir /root/.ssh
+
+# 配置 ssh
+RUN sed -ri 's/^#?PermitRootLogin\s+.*/PermitRootLogin yes/' /etc/ssh/sshd_config &&\
+    sed -ri 's/UsePAM yes/#UsePAM yes/g' /etc/ssh/sshd_config
+
+# 配置 frp
+ENV FRP_VERSION 0.52.3
+ENV PROXY https://mirror.ghproxy.com/
+ENV NAME "WSL"
+ENV SERVER_IP "x.x.x.x"
+ENV REMOTE_PORT "10002"
+RUN cd /root &&\
+    wget --no-check-certificate -c ${PROXY}https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_amd64.tar.gz &&\
+    tar zxvf frp_${FRP_VERSION}_linux_amd64.tar.gz  &&\
+    cd frp_${FRP_VERSION}_linux_amd64/ &&\
+    cp frpc /usr/bin/ &&\
+    mkdir -p /etc/frp &&\
+    cp frpc.toml /etc/frp &&\
+    sed -i 's/name = "test-tcp"/name = "'"${NAME}"'"/' /etc/frp/frpc.toml &&\
+    sed -i 's/serverAddr = "127.0.0.1"/serverAddr = "'"${SERVER_IP}"'"/' /etc/frp/frpc.toml &&\
+    sed -i 's/remotePort = 6000/remotePort = '"${REMOTE_PORT}"'/' /etc/frp/frpc.toml &&\
+    cd /root &&\
+    rm frp_${FRP_VERSION}_linux_amd64.tar.gz &&\
+    rm -rf frp_${FRP_VERSION}_linux_amd64
+
+# 
+RUN touch /etc/systemd/system/frpc.service &&\
+    echo "[Unit]" > /etc/systemd/system/frpc.service &&\
+    echo "Description = frp server" >> /etc/systemd/system/frpc.service &&\
+    echo "After = network.target syslog.target" >> /etc/systemd/system/frpc.service &&\
+    echo "Wants = network.target" >> /etc/systemd/system/frpc.service &&\
+    echo "[Service]" >> /etc/systemd/system/frpc.service &&\
+    echo "Type = simple" >> /etc/systemd/system/frpc.service &&\
+    echo "ExecStart = /bin/frpc -c /etc/frp/frpc.toml" >> /etc/systemd/system/frpc.service &&\
+    echo "[Install]" >> /etc/systemd/system/frpc.service &&\
+    echo "WantedBy = multi-user.target" >> /etc/systemd/system/frpc.service
+
+COPY start.sh /root/start.sh
+RUN chmod +x /root/start.sh && /root/start.sh
+CMD ["/lib/systemd/systemd"]

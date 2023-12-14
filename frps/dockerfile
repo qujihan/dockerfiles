@@ -1,0 +1,22 @@
+# podman build -t frps -f ./dockerfile
+# echo "bindPort = 7000" > /etc/frp/frps.toml
+# podman run --restart=always --network host -d -v /etc/frp/frps.toml:/etc/frp/frps.toml --name frps frps
+
+FROM amd64/alpine:3.18
+
+ENV FRP_VERSION 0.52.3
+ENV PROXY https://mirror.ghproxy.com/
+ARG use_proxy=false
+
+RUN cd /root \
+    &&  wget --no-check-certificate -c ${PROXY}https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_amd64.tar.gz \
+    &&  tar zxvf frp_${FRP_VERSION}_linux_amd64.tar.gz  \
+    &&  cd frp_${FRP_VERSION}_linux_amd64/ \
+    &&  cp frps /usr/bin/ \
+    &&  mkdir -p /etc/frp \
+    &&  cp frps.toml /etc/frp \
+    &&  cd /root \
+    &&  rm frp_${FRP_VERSION}_linux_amd64.tar.gz \
+    &&  rm -rf frp_${FRP_VERSION}_linux_amd64/ 
+
+ENTRYPOINT /usr/bin/frps -c /etc/frp/frps.toml
